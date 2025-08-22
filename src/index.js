@@ -1,172 +1,170 @@
-class VGA_Emulator {
-    /*
-        Bit(s)	Value
-        0-7	    ASCII code point
-        8-11	Foreground color
-        12-14	Background color
-        15	    Blink
+const disksLabel = document.getElementById("disks-label");
+const disksEl = document.getElementById("disks");
 
-        Number  Color	    Number + Bright Bit	Bright  Color
-        0x0	    Black	    0x8	                        Dark Gray
-        0x1	    Blue	    0x9	                        Light Blue
-        0x2 	Green	    0xa	                        Light Green
-        0x3	    Cyan	    0xb	                        Light Cyan
-        0x4 	Red	        0xc 	                    Light Red
-        0x5	    Magenta 	0xd	                        Pink
-        0x6	    Brown	    0xe	                        Yellow
-        0x7	    Light Gray	0xf	                        White
-    */
+let hardware = {
+    displays: [
+        new DisplayAdapter(canvas0)
+    ],
+    disks: [],
+};
 
-    static CHARS = "\x00☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼ !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~⌂";
-    static COLORS = [
-        "black",    "blue",      "green",      "cyan",      "red",      "magenta", "brown",  "lightgray",
-        "darkgray", "lightblue", "lightgreen", "lightcyan", "lightred", "pink",    "yellow", "white"
-    ];
-
-    canvas;
-    ctx;
-    width;
-    height;
-    mode = -1;
-    displayWidth;
-    displayHeight;
-
-    constructor(canvas) {
-        this.canvas = canvas;
-        this.ctx = canvas.getContext("2d");
+async function updateDisks() {
+    if (opfsRoot === null) {
+        opfsRoot = await navigator.storage.getDirectory();
     }
+    
+    disksEl.innerHTML = "";
+    hardware.disks = [];
+    for await (let [name, fileHandle] of opfsRoot.entries()) {
+        if (fileHandle.kind === "file") {
+            const file = await fileHandle.getFile();
+            if (!file.name.endsWith(".crswap")) {
+                let el = document.createElement("div");
+                el.innerText = `${name} - ${file.size} bytes`;
+                hardware.disks.push(new DiskAdapter(file.name, fileHandle, file.size));
 
-    setSize(width, height) {
-        this.width = width;
-        this.height = height;
-        this.canvas.width = width;
-        this.canvas.height = height;
-        this.canvas.style.transform = `scale(${this.displayWidth / width})`;
-    }
+                let delEL = document.createElement("button");
+                delEL.style.marginLeft = "4px";
+                delEL.style.backgroundColor = "rgb(230, 0, 0)";
+                delEL.innerHTML = "Delete";
+                delEL.addEventListener("click", () => {
+                    const confirmation = window.confirm(`Are you sure you want to delete ${file.name}?`);
+                    if (confirmation) {
+                        opfsRoot.removeEntry(file.name);
+                        updateDisks();
+                    }
+                });
+                el.append(delEL);
 
-    setDisplaySize(width, height) {
-        this.displayWidth = width;
-        this.displayHeight = height;
-        this.canvas.style.transform = `scale(${this.displayWidth / width})`;
-    }
+                let downloadEl = document.createElement("button");
+                downloadEl.style.marginLeft = "4px";
+                downloadEl.innerHTML = "Download";
+                downloadEl.addEventListener("click", () => {
+                    const url = URL.createObjectURL(file);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = file.name;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
 
-    setMode(mode) {
-        this.mode = mode;
-        switch (mode) {
-            case 3: {
-                // text mode 80x25 characters, 16 color VGA
-                this.setSize(720, 400);
-            }
-        }
-    }
+                });
+                el.append(downloadEl);
 
-    update(videoBuffer) {
-        const ctx = this.ctx;
-        switch (this.mode) {
-            case 3: {
-                ctx.fillStyle = "black";
-                ctx.fillRect(0, 0, this.width, this.height);
-                // console.log(videoBuffer)
-                ctx.font = "bold 16px monospace";
-                for (let i = 0; i < videoBuffer.length; i += 2) {
-                    let foregroundClr = videoBuffer[i] & 0b1111;
-                    let backgroundClr = (videoBuffer[i] >> 4) & 0b111;
-                    let blink = (videoBuffer[i] >> 7) & 0b1;
-                    let codePt = videoBuffer[i + 1];
-                    let ch = VGA_Emulator.CHARS[codePt];
-                    let x = (i >> 1) % 80;
-                    let y = ((i >> 1) / 80) | 0;
-
-                    // if (i === 0) {
-                    //     console.log(VGA_Emulator.COLORS[backgroundClr])
-                    // }
-                    
-                    ctx.fillStyle = VGA_Emulator.COLORS[backgroundClr];
-                    ctx.fillRect(x * 9, y * 16, 9, 16);
-                    
-                    ctx.fillStyle = VGA_Emulator.COLORS[foregroundClr];
-                    ctx.fillText(ch, 0 + x * 9, 13 + y * 16);
-                }
+                disksEl.append(el);
             }
         }
     }
 }
-function main(compiledSource) {
+
+async function start(compiledSource) {
+    await updateDisks();
+
     // virtual RAM
-    const MEGABYTE = 1048576;
-    const PAGE_SIZE = 65536;
-    const vRAM = new WebAssembly.Memory({
-        initial: MEGABYTE / PAGE_SIZE,
-        maximum: 128 * MEGABYTE / PAGE_SIZE
-    });
-
-    // virtual monitor
-    let monitor = new VGA_Emulator(document.getElementById("monitor"));
-    monitor.setDisplaySize(window.innerWidth, window.innerHeight);
-
-    setInterval(() => {
-        monitor.update(new Uint8Array(vRAM.buffer, 72, 4000));
-    }, 1000 / 6);
+    const MEGABYTE = 1024 * 1024;
+    const PAGE_SIZE = 1024 * 64;
+    // const RAM = new WebAssembly.Memory({
+    //     initial: MEGABYTE / PAGE_SIZE,
+    //     maximum: 128 * MEGABYTE / PAGE_SIZE
+    // });
+    let RAM;
 
     // virtual drivers
     const importObject = {
-        imports: {
-            mem: vRAM,
-            vgaInterrupt() {
-                const graphicsMode = new Uint8Array(vRAM.buffer, 0, 4000)[0];
-                monitor.setMode(graphicsMode);
-            },
-            debugString(offset, len) {
-                let bytes = new Uint8Array(vRAM.buffer, offset, len);
+        env: {
+            console_log(addr) {
+                console.log(addr)
+                let bytes = new Uint8Array(RAM.buffer, addr, 5);
                 console.log(new TextDecoder("utf8").decode(bytes));
             },
-            debugInt(n) {
-                console.log(n);
-            },
+            vga_setAddress(display, addr) {
+                hardware.displays[display].videoBuffAddr = addr;
+            }
         },
     };
 
     // run binary
     const wasm = new WebAssembly.Module(compiledSource);
     const wasmInstance = new WebAssembly.Instance(wasm, importObject);
+    const exports = wasmInstance.exports;
+    window.exports = exports;
+
+    RAM = exports.memory;
+
+    exports.start();
+
+    // virtual monitor
+    hardware.displays[0].setMode(3);
+    setInterval(() => {
+        exports.loop();
+        let display0 = hardware.displays[0];
+        let VGATUIBuff = new Uint8Array(RAM.buffer, display0.videoBuffAddr, 80*25*2);
+        display0.update(VGATUIBuff);
+    }, 1000 / 60);
+
+    canvas0.addEventListener("keydown", (e) => {
+        exports.keydown(e.keyCode);
+    });
 }
 
-// compile and init source code
-WabtModule().then(wabt => {
-    let module;
-    let binaryBuffer = null;
-    try {
-        const watSrc = document.getElementById("wat").textContent;
-        const features = {
-            'exceptions': false,
-            'mutable_globals': false,
-            'sat_float_to_int': false,
-            'sign_extension': false,
-            'simd': false,
-            'threads': false,
-            'multi_value': false,
-            'tail_call': false,
-            'bulk_memory': false,
-            'reference_types': false,
-        };
-
-        // Assemble source code
-        module = wabt.parseWat("waos.wat", watSrc, features);
-        module.resolveNames();
-        module.validate(features);
-        binaryBuffer = module.toBinary({
-            log: false,
-            write_debug_names:false
-        }).buffer;
-    } catch (e) {
-        console.error(e);
-    }
-
-    // free memory
-    if (module) module.destroy();
+// attach disk
+document.getElementById("diskImage").addEventListener('change', async (changeEvent) => {
+    let files = changeEvent.target.files;
+    let uploadFile = changeEvent.target.files[0];
     
-    if (binaryBuffer instanceof Uint8Array) {
-        // init
-        main(binaryBuffer);
+    if (uploadFile) {
+        disksLabel.innerText = "Disks: Uploading...";
+        let adapter = await DiskAdapter.createFromFile(files[0], (bytes, fileSize) => {
+            disksLabel.innerText = `Disks: Uploading... (${Math.round(bytes / fileSize * 100)}%) (${bytes}/${fileSize})`;
+        });
+        await updateDisks();
+        disksLabel.innerText = `Disks:`;
     }
 });
+
+fetch("/wasmdos.wasm")
+    .then(res => res.arrayBuffer())
+    .then(binary => {
+        start(binary);
+    })
+
+// compile and init source code
+// WabtModule().then(wabt => {
+//     let module;
+//     let binaryBuffer = null;
+//     try {
+//         const watSrc = document.getElementById("wat").textContent;
+//         const features = {
+//             'exceptions': false,
+//             'mutable_globals': false,
+//             'sat_float_to_int': false,
+//             'sign_extension': false,
+//             'simd': false,
+//             'threads': false,
+//             'multi_value': false,
+//             'tail_call': false,
+//             'bulk_memory': false,
+//             'reference_types': false,
+//         };
+
+//         // Assemble source code
+//         module = wabt.parseWat("waos.wat", watSrc, features);
+//         module.resolveNames();
+//         module.validate(features);
+//         binaryBuffer = module.toBinary({
+//             log: false,
+//             write_debug_names:false
+//         }).buffer;
+//     } catch (e) {
+//         console.error(e);
+//     }
+
+//     // free memory
+//     if (module) module.destroy();
+    
+//     if (binaryBuffer instanceof Uint8Array) {
+//         // init
+//         main(binaryBuffer);
+//     }
+// });

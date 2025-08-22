@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>WASM DOS</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        canvas {
+            image-rendering: pixelated;
+            border: 1px solid gray;
+            display: block;
+            margin: auto;
+            transform-origin: top center;
+        }
+
+        button {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div style="padding: 4px;">
+        <strong>Hardware</strong>
+        <br>
+
+        <span>Processors: </span>
+        <input id="processors" type="number" value="4">
+        <br>
+        
+        <span>Upload Disk:</span>
+        <input id="diskImage" type="file">
+        <br>
+
+        <span id="disks-label">Disks:</span>
+        <div id="disks" style="padding-left: 12px;"></div>
+
+        <span>Display Scale:</span>
+        <input id="scale" type="number" value="1.50" step="0.1">
+    </div>
+    
+    <canvas id="display0" tabindex="0"></canvas>
+    <script>
+        const canvas0 = document.getElementById("display0");
+        const scaleValEl = document.getElementById("scale");
+        canvas0.style.transform = `scale(${scaleValEl.value})`;
+        scaleValEl.addEventListener("input", () => {
+            canvas0.style.transform = `scale(${scaleValEl.value})`;
+        });
+    </script>
+
+    <script src="./DisplayAdapter.js"></script>
+    <script src="./DiskAdapter.js"></script>
+    <script src="./index.js"></script>
+
+</body>
+</html>
